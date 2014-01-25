@@ -1,0 +1,9 @@
+{:github-collector {:target "/Users/ben/data-lab/github-repos"
+                    :user ""
+                    :password ""}
+ :maven-collector {:target "/Users/ben/data-lab/maven-searches"
+                   :start-queries ["com" "org" "de"]
+                   :rows 200}
+ :npmjs-collector {:source "package_names.json"
+                   :target "/Users/ben/data-lab/npmjs-packages/%s.json"
+                   :target-dir "/Users/ben/data-lab/npmjs-packages/"}}
