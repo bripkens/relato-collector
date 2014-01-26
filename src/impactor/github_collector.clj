@@ -4,6 +4,7 @@
 
             [cheshire.core :as json]
             [clj-http.client :as client]
+            [clojure.core.async :as async]
             [clojure.java.io :as io]
             [clojure.tools.logging :as logging]))
 
@@ -45,28 +46,35 @@
   (with-open [writer (io/writer p)]
           (.write writer contents)))
 
-(defn- collect-repository-overview-data [since]
+(defn- collect-repository-overview-data [since result-channel]
   (try
     (let [response (get-repositories since)
           body (json/parse-string (:body response))
           start (get (first body) "id")
           end (get (last body) "id")]
-      (write (str (get-in config [:github-collector :target])
-                  "/"
-                  start
-                  "-"
-                  end
-                  ".json")
-             (:body response))
-      (logging/info "Got repos" start "to" end)
-      (collect-repository-overview-data end))
+      (if (nil? start)
+        (do
+          (logging/info "Loaded all repositories! Writing to result channel")
+          (async/>!! result-channel since))
+        (do
+          (write (str (get-in config [:github-collector :target])
+                      "/"
+                      start
+                      "-"
+                      end
+                      ".json")
+                 (:body response))
+          (logging/info "Got repos" start "to" end)
+          (async/go
+            (collect-repository-overview-data end result-channel)))))
     (catch Exception e
       (logging/error "Error occured retrieving repository overview for start"
                      since
                      ". Will retry in five minutes."
                      e)
       (Thread/sleep 18000)
-      (collect-repository-overview-data since))))
+      (async/go
+        (collect-repository-overview-data since result-channel)))))
 
 (defn- find-highest-seen-repository-id []
   (let [files (filter #(and (.isFile %) (.endsWith (.getName %) ".json"))
@@ -82,6 +90,9 @@
 (defn -main []
   (get-rate-limit)
   (logging/info "Starting rate limit" @rate-limit)
-  (let [start (find-highest-seen-repository-id)]
+  (let [start (find-highest-seen-repository-id)
+        result-channel (async/chan)]
     (logging/info "Starting with repository ID" start)
-    (collect-repository-overview-data start)))
+    (collect-repository-overview-data start result-channel)
+    (logging/info "Finished crawling GitHub. Result is:"
+                  (async/<!! result-channel))))
